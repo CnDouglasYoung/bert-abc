@@ -2,7 +2,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
+import pandas as pd
 import csv
 import os
 import codecs
@@ -27,6 +27,8 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
 # os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 
 class InputExample(object):
@@ -91,7 +93,7 @@ class DataProcessor(object):
 
 class MyPro(DataProcessor):
     '''自定义数据读取方法，针对json文件
-    
+
     Returns:
         examples: 数据集，包含index、中文文本、类别三个部分
     '''
@@ -287,7 +289,7 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
 
 def val(model, processor, args, label_list, tokenizer, device):
     '''模型验证
-    
+
     Args:
         model: 模型
 	processor: 数据读取方法
@@ -295,7 +297,7 @@ def val(model, processor, args, label_list, tokenizer, device):
 	label_list: 所有可能类别
 	tokenizer: 分词方法
 	device
-	
+
     Returns:
         f1: F1值
     '''
@@ -338,7 +340,7 @@ def val(model, processor, args, label_list, tokenizer, device):
 
 def test(model, processor, args, label_list, tokenizer, device):
     '''模型测试
-    
+
     Args:
         model: 模型
 	processor: 数据读取方法
@@ -346,7 +348,7 @@ def test(model, processor, args, label_list, tokenizer, device):
 	label_list: 所有可能类别
 	tokenizer: 分词方法
 	device
-	
+
     Returns:
         f1: F1值
     '''
@@ -379,11 +381,55 @@ def test(model, processor, args, label_list, tokenizer, device):
 
         logits = logits.detach().cpu().numpy()
         label_ids = label_ids.to('cpu').numpy()
-
+    save_predict(predict, args)
     f1 = np.mean(metrics.f1_score(predict, gt, average=None))
     print('F1 score in text set is {}'.format(f1))
 
     return f1
+
+
+def save_predict(predict, args):
+    clist = ['Id', 'Expected']
+    file = pd.DataFrame(index=clist)
+    for i in range(len(predict)):
+        file = file.append({'Id': i, 'Expected': predict[i]}, ignore_index=True)
+    file = file.dropna(axis=0, how='any', thresh=None, subset=None, inplace=False)
+    file['Id'] = file['Id'].astype(int)
+    file['Expected'] = file['Expected'].astype(int)
+    file.to_csv(os.path.join(args.data_dir, "test_predict.csv"), index=0, columns=clist)
+    print(file)
+
+
+def data_preprocessing(args):
+    data = pd.read_csv(os.path.join(args.data_dir, 'train.csv'), encoding = 'utf-8')
+    interesting_feat = ['text', 'class_label']
+    saving_data = data[interesting_feat]
+    saving_data = saving_data.rename(index=str, columns={"text": "question", "class_label": "label"})
+    print(saving_data)
+
+    from sklearn.model_selection import train_test_split
+
+    train_data, val_data = train_test_split(saving_data, test_size=0.20, random_state=42)
+
+    data = pd.read_csv(os.path.join(args.data_dir, 'test.csv'), encoding = 'utf-8')
+    interesting_feat = ['text', 'class_label']
+    test_data = data[interesting_feat]
+    test_data = test_data.rename(index=str, columns={"Tweet": "question", "Id": "label"})
+
+    train_data.to_json(os.path.join(args.data_dir, 'train.json'), orient='records')
+    test_data.to_json(os.path.join(args.data_dir, 'test.json'), orient = 'records')
+    val_data.to_json(os.path.join(args.data_dir, 'val.json'), orient = 'records')
+
+
+    import re
+
+    for s in ['train', 'test', 'val']:
+        path = os.path.join(args.data_dir, '%s.json ' % str(s))
+    with open(path, 'r') as r:
+        content = r.read()
+        content = re.sub(r'},{', '}\n{', content[1:-1])
+    with open(path, 'w') as r:
+        r.write(content)
 
 
 def main():
@@ -428,7 +474,7 @@ def main():
                         type=int,
                         help="字符串最大长度")
     parser.add_argument("--do_train",
-                        default=True,
+                        default=False,
                         action='store_true',
                         help="训练模式")
     parser.add_argument("--do_eval",
@@ -488,12 +534,16 @@ def main():
                         default=128,
                         type=float,
                         help="Loss scaling, positive power of 2 values can improve fp16 convergence.")
-
+    parser.add_argument("--data_preprocessing",
+                        default=True,
+                        action='store_true',
+                        help="是否进行数据初始化")
     args = parser.parse_args()
 
     # 对模型输入进行处理的processor，git上可能都是针对英文的processor
     processors = {'mypro': MyPro}
-
+    if args.data_preprocessing:
+        data_preprocessing(args)
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
         n_gpu = torch.cuda.device_count()
@@ -522,7 +572,7 @@ def main():
         raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
-        raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
+        print(ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir)))
     os.makedirs(args.output_dir, exist_ok=True)
 
     task_name = args.task_name.lower()
@@ -574,13 +624,14 @@ def main():
     t_total = num_train_steps
     if args.local_rank != -1:
         t_total = t_total // torch.distributed.get_world_size()
-    optimizer = BertAdam(optimizer_grouped_parameters,
-                         lr=args.learning_rate,
-                         warmup=args.warmup_proportion,
-                         t_total=t_total)
 
     global_step = 0
     if args.do_train:
+        optimizer = BertAdam(optimizer_grouped_parameters,
+                             lr=args.learning_rate,
+                             warmup=args.warmup_proportion,
+                             t_total=t_total)
+
         train_features = convert_examples_to_features(
             train_examples, label_list, args.max_seq_length, tokenizer, show_exp=False)
         logger.info("***** Running training *****")
