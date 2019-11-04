@@ -27,7 +27,7 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
-os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+# os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
@@ -144,6 +144,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
 
     features = []
     for (ex_index, example) in enumerate(examples):
+
         tokens_a = tokenizer.tokenize(example.text_a)
 
         tokens_b = None
@@ -419,11 +420,11 @@ def main():
 
     # other parameters
     parser.add_argument("--num_labels",
-                        default=14,
+                        default=2,
                         type=int,
                         help="num_labels")
     parser.add_argument("--max_seq_length",
-                        default=22,
+                        default=32,
                         type=int,
                         help="字符串最大长度")
     parser.add_argument("--do_train",
@@ -439,7 +440,7 @@ def main():
                         action='store_true',
                         help="英文字符的大小写转换，对于中文来说没啥用")
     parser.add_argument("--train_batch_size",
-                        default=128,
+                        default=256,
                         type=int,
                         help="训练时batch大小")
     parser.add_argument("--eval_batch_size",
@@ -460,7 +461,7 @@ def main():
                         help="Proportion of training to perform linear learning rate warmup for."
                              "E.g., 0.1 = 10%% of training.")
     parser.add_argument("--no_cuda",
-                        default=False,
+                        default=True,
                         action='store_true',
                         help="用不用CUDA")
     parser.add_argument("--local_rank",
@@ -476,7 +477,7 @@ def main():
                         type=int,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--optimize_on_cpu",
-                        default=False,
+                        default=True,
                         action='store_true',
                         help="Whether to perform optimization and keep the optimizer averages on CPU.")
     parser.add_argument("--fp16",
